@@ -22,7 +22,7 @@ def fetch_cmc_map():
     
     # 设置查询参数
     params = {
-        "limit": 3000,  # 获取最多3000个代币
+        "limit": 5000,  # 获取最多3000个代币
         "listing_status": "active",  # 只获取活跃的代币
         "sort": "cmc_rank"  # 按CoinMarketCap排名排序
     }
@@ -75,7 +75,7 @@ def fetch_cmc_listings():
     # 设置查询参数
     params = {
         "start": 1,
-        "limit": 3000,  # 获取最多3000个代币
+        "limit": 5000,  # 获取最多3000个代币
         "convert": "USD"  # 转换为美元
     }
     
