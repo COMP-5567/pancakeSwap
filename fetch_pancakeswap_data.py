@@ -45,7 +45,7 @@ def fetch_pancakeswap_data():
     else:
         print(f"获取Schema失败: {response.status_code}, {response.text}")
         # 如果内省查询失败，我们尝试一些通用查询
-        available_queries = ['burns', 'swaps', 'bundles', 'tokens', 'pools', 'factories']
+        available_queries = ['burns', 'swaps', 'bundles', 'tokens', 'factories']
     
     # 定义数据容器
     factory_data = []
@@ -54,75 +54,349 @@ def fetch_pancakeswap_data():
     swaps_data = []
     burns_data = []
     mints_data = []
-
-
-    # 尝试获取铸币(Mint)事件
-    if 'mints' in available_queries:
-        print("Fetching mint data...")
-        mints_query = """
-        {
-          mints(first: 1000, skip:0) {
-            id
-            timestamp
-            pool {
-              id
-              token0 {
-                symbol
-                name
-              }
-              token1 {
-                symbol
-                name
-              }
-            }
-            amount0
-            amount1
-            amountUSD
+    
+    # 设置分页参数
+    MAX_RECORDS = 10000
+    BATCH_SIZE = 1000
+    
+    # 查询模板
+    burns_query_template = """
+    {
+      burns(first: 1000, skip: %d) {
+        id
+        timestamp
+        pool {
+          id
+          token0 {
+            symbol
+            name
+          }
+          token1 {
+            symbol
+            name
           }
         }
-        """
-        
-        response = requests.post(subgraph_url, json={'query': mints_query}, headers=headers)
-        if response.status_code == 200:
-            result = response.json()
-            if 'data' in result and 'mints' in result['data']:
-                mints_data = result['data']['mints']
-                print(f"找到 {len(mints_data)} 条铸币数据")
+        amount0
+        amount1
+        amountUSD
+      }
+    }
+    """
     
-    time.sleep(0.5)  # 避免请求过快
-    
-    # 尝试获取销毁(Burn)事件
-    if 'burns' in available_queries:
-        print("Fetching burn data...")
-        burns_query = """
-        {
-          burns(first: 1000, skip:0) {
-            id
-            timestamp
-            pool {
-              id
-              token0 {
-                symbol
-                name
-              }
-              token1 {
-                symbol
-                name
-              }
-            }
-            amount0
-            amount1
-            amountUSD
+    mints_query_template = """
+    {
+      mints(first: 1000, skip: %d) {
+        id
+        timestamp
+        pool {
+          id
+          token0 {
+            symbol
+            name
+          }
+          token1 {
+            symbol
+            name
           }
         }
-        """
+        amount0
+        amount1
+        amountUSD
+      }
+    }
+    """
+    
+    swaps_query_template = """
+    {
+      swaps(first: 1000, skip: %d) {
+        id
+        timestamp
+        pool {
+          id
+          token0 {
+            symbol
+            name
+          }
+          token1 {
+            symbol
+            name
+          }
+        }
+        amount0
+        amount1
+        amountUSD
+      }
+    }
+    """
+    
+    tokens_query_template = """
+    {
+      tokens(first: 1000, skip: %d) {
+        id
+        symbol
+        name
+        decimals
+      }
+    }
+    """
+    
+    pairs_query_template = """
+    {
+      pairs(first: 1000, skip: %d) {
+        id
+        token0 {
+          id
+          symbol
+          name
+        }
+        token1 {
+          id
+          symbol
+          name
+        }
+        volumeUSD
+        txCount
+      }
+    }
+    """
+    
+    # 分页获取burns数据
+    print("Fetching burns data...")
+    skip = 0
+    while skip < MAX_RECORDS:
+        query = burns_query_template % skip
+        response = requests.post(subgraph_url, json={'query': query}, headers=headers)
         
-        response = requests.post(subgraph_url, json={'query': burns_query}, headers=headers)
         if response.status_code == 200:
-            result = response.json()
-            if 'data' in result and 'burns' in result['data']:
-                burns_data = result['data']['burns']
-                print(f"找到 {len(burns_data)} 条销毁数据")
+            try:
+                result = response.json()
+                if 'data' in result and 'burns' in result['data']:
+                    batch_data = result['data']['burns']
+                    if not batch_data:  # 如果返回空数组，说明没有更多数据
+                        break
+                    burns_data.extend(batch_data)
+                    print(f"获取到 {len(batch_data)} 条burns数据，总计 {len(burns_data)} 条")
+                    skip += BATCH_SIZE
+                else:
+                    print(f"Unexpected burns response structure: {result}")
+                    break
+            except ValueError as e:
+                print(f"Error parsing JSON response for burns: {e}")
+                break
+        else:
+            print(f"Error fetching burns: HTTP {response.status_code}")
+            break
+        
+        time.sleep(0.5)  # 避免请求过快
+    
+    # 分页获取mints数据
+    print("Fetching mints data...")
+    skip = 0
+    while skip < MAX_RECORDS:
+        query = mints_query_template % skip
+        response = requests.post(subgraph_url, json={'query': query}, headers=headers)
+        
+        if response.status_code == 200:
+            try:
+                result = response.json()
+                if 'data' in result and 'mints' in result['data']:
+                    batch_data = result['data']['mints']
+                    if not batch_data:  # 如果返回空数组，说明没有更多数据
+                        break
+                    mints_data.extend(batch_data)
+                    print(f"获取到 {len(batch_data)} 条mints数据，总计 {len(mints_data)} 条")
+                    skip += BATCH_SIZE
+                else:
+                    print(f"Unexpected mints response structure: {result}")
+                    break
+            except ValueError as e:
+                print(f"Error parsing JSON response for mints: {e}")
+                break
+        else:
+            print(f"Error fetching mints: HTTP {response.status_code}")
+            break
+        
+        time.sleep(0.5)  # 避免请求过快
+    
+    # 分页获取swaps数据
+    print("Fetching swaps data...")
+    skip = 0
+    while skip < MAX_RECORDS:
+        query = swaps_query_template % skip
+        response = requests.post(subgraph_url, json={'query': query}, headers=headers)
+        
+        if response.status_code == 200:
+            try:
+                result = response.json()
+                if 'data' in result and 'swaps' in result['data']:
+                    batch_data = result['data']['swaps']
+                    if not batch_data:  # 如果返回空数组，说明没有更多数据
+                        break
+                    swaps_data.extend(batch_data)
+                    print(f"获取到 {len(batch_data)} 条swaps数据，总计 {len(swaps_data)} 条")
+                    skip += BATCH_SIZE
+                else:
+                    print(f"Unexpected swaps response structure: {result}")
+                    break
+            except ValueError as e:
+                print(f"Error parsing JSON response for swaps: {e}")
+                break
+        else:
+            print(f"Error fetching swaps: HTTP {response.status_code}")
+            break
+        
+        time.sleep(0.5)  # 避免请求过快
+    
+    # 分页获取tokens数据
+    print("Fetching tokens data...")
+    skip = 0
+    while skip < MAX_RECORDS:
+        query = tokens_query_template % skip
+        response = requests.post(subgraph_url, json={'query': query}, headers=headers)
+        
+        if response.status_code == 200:
+            try:
+                result = response.json()
+                if 'data' in result and 'tokens' in result['data']:
+                    batch_data = result['data']['tokens']
+                    if not batch_data:  # 如果返回空数组，说明没有更多数据
+                        break
+                    tokens_data.extend(batch_data)
+                    print(f"获取到 {len(batch_data)} 条tokens数据，总计 {len(tokens_data)} 条")
+                    skip += BATCH_SIZE
+                else:
+                    print(f"Unexpected tokens response structure: {result}")
+                    break
+            except ValueError as e:
+                print(f"Error parsing JSON response for tokens: {e}")
+                break
+        else:
+            print(f"Error fetching tokens: HTTP {response.status_code}")
+            break
+        
+        time.sleep(0.5)  # 避免请求过快
+    
+    # 分页获取pairs数据
+    print("Fetching pairs data...")
+    skip = 0
+    if 'pairs' in available_queries:
+        while skip < MAX_RECORDS:
+            try:
+                pairs_query = f"""
+                {{
+                  pairs(first: 1000, skip: {skip}) {{
+                    id
+                    token0 {{
+                      id
+                      symbol
+                      name
+                    }}
+                    token1 {{
+                      id
+                      symbol
+                      name
+                    }}
+                    volumeUSD
+                    txCount
+                  }}
+                }}
+                """
+                
+                response = requests.post(subgraph_url, json={'query': pairs_query}, headers=headers)
+                if response.status_code == 200:
+                    try:
+                        result = response.json()
+                        # 检查 result 和 result['data'] 是否为有效值
+                        if result is not None and 'data' in result and result['data'] is not None and 'pairs' in result['data']:
+                            batch_data = result['data']['pairs']
+                            if not batch_data:  # 如果返回空数组，说明没有更多数据
+                                break
+                            pairs_data.extend(batch_data)
+                            print(f"获取到 {len(batch_data)} 条pairs数据，总计 {len(pairs_data)} 条")
+                            skip += BATCH_SIZE
+                        else:
+                            print(f"Unexpected pairs response structure: {result}")
+                            # 打印更详细的调试信息
+                            print(f"Is result None? {result is None}")
+                            if result is not None and 'data' in result:
+                                print(f"Is result['data'] None? {result['data'] is None}")
+                            elif result is not None:
+                                print("'data' not in result")
+                            break
+                    except ValueError as e:
+                        print(f"Error parsing JSON response for pairs: {e}")
+                        print(f"Response content: {response.text}")
+                        break
+                else:
+                    print(f"Error fetching pairs: HTTP {response.status_code}")
+                    print(f"Response content: {response.text}")
+                    break
+            except Exception as e:
+                print(f"Unexpected error when fetching pairs: {e}")
+                break
+            
+            time.sleep(0.5)  # 避免请求过快
+    
+    # 如果通过pairs查询没有获取到数据，尝试通过pools查询
+    if not pairs_data and 'pools' in available_queries:
+        print("No pairs found. Fetching pools data instead...")
+        skip = 0
+        while skip < MAX_RECORDS:
+            try:
+                pools_query = f"""
+                {{
+                  pools(first: 1000, skip: {skip}) {{
+                    id
+                    token0 {{
+                      id
+                      symbol
+                      name
+                    }}
+                    token1 {{
+                      id
+                      symbol
+                      name
+                    }}
+                    volumeUSD
+                    txCount
+                  }}
+                }}
+                """
+                
+                response = requests.post(subgraph_url, json={'query': pools_query}, headers=headers)
+                if response.status_code == 200:
+                    try:
+                        result = response.json()
+                        # 检查 result 和 result['data'] 是否为有效值
+                        if result is not None and 'data' in result and result['data'] is not None and 'pools' in result['data']:
+                            batch_data = result['data']['pools']
+                            if not batch_data:  # 如果返回空数组，说明没有更多数据
+                                break
+                            pairs_data.extend(batch_data)
+                            print(f"获取到 {len(batch_data)} 条pools数据，总计 {len(pairs_data)} 条")
+                            skip += BATCH_SIZE
+                        else:
+                            print(f"Unexpected pools response structure: {result}")
+                            # 打印更详细的调试信息
+                            print(f"Is result None? {result is None}")
+                            if result is not None and 'data' in result:
+                                print(f"Is result['data'] None? {result['data'] is None}")
+                            elif result is not None:
+                                print("'data' not in result")
+                            break
+                    except ValueError as e:
+                        print(f"Error parsing JSON response for pools: {e}")
+                        print(f"Response content: {response.text}")
+                        break
+                else:
+                    print(f"Error fetching pools: HTTP {response.status_code}")
+                    print(f"Response content: {response.text}")
+                    break
+            except Exception as e:
+                print(f"Unexpected error when fetching pools: {e}")
+                break
+            
+            time.sleep(0.5)  # 避免请求过快
     
     # 尝试获取工厂数据 (factories 或 pancakeFactories)
     if 'factories' in available_queries:
@@ -167,130 +441,14 @@ def fetch_pancakeswap_data():
     
     time.sleep(0.5)  # 避免请求过快
     
-    # 尝试获取代币数据
-    if 'tokens' in available_queries:
-        print("Fetching token data...")
-        token_query = """
-        {
-          tokens(first: 1000,skip:0) {
-            id
-            symbol
-            name
-            decimals
-          }
-        }
-        """
-        
-        response = requests.post(subgraph_url, json={'query': token_query}, headers=headers)
-        if response.status_code == 200:
-            result = response.json()
-            if 'data' in result and 'tokens' in result['data']:
-                tokens_data = result['data']['tokens']
-                print(f"找到 {len(tokens_data)} 个代币")
-    
-    time.sleep(0.5)  # 避免请求过快
-    
-    # 尝试获取交易对数据 (pairs 或 pools)
-    if 'pairs' in available_queries:
-        print("Fetching pairs data...")
-        pairs_query = """
-        {
-          pairs(first: 1000 ,skip:0) {
-            id
-            token0 {
-              id
-              symbol
-              name
-            }
-            token1 {
-              id
-              symbol
-              name
-            }
-            volumeUSD
-            txCount
-          }
-        }
-        """
-        
-        response = requests.post(subgraph_url, json={'query': pairs_query}, headers=headers)
-        if response.status_code == 200:
-            result = response.json()
-            if 'data' in result and 'pairs' in result['data']:
-                pairs_data = result['data']['pairs']
-                print(f"找到 {len(pairs_data)} 个交易对")
-    elif 'pools' in available_queries:
-        print("Fetching pools data...")
-        pairs_query = """
-        {
-          pools(first: 1000, skip:0) {
-            id
-            token0 {
-              id
-              symbol
-              name
-            }
-            token1 {
-              id
-              symbol
-              name
-            }
-            volumeUSD
-            txCount
-          }
-        }
-        """
-        
-        response = requests.post(subgraph_url, json={'query': pairs_query}, headers=headers)
-        if response.status_code == 200:
-            result = response.json()
-            if 'data' in result and 'pools' in result['data']:
-                pairs_data = result['data']['pools']
-                print(f"找到 {len(pairs_data)} 个流动池")
-    
-    time.sleep(0.5)  # 避免请求过快
-    
-    # 尝试获取交换(Swap)事件
-    if 'swaps' in available_queries:
-        print("Fetching swap data...")
-        swaps_query = """
-        {
-          swaps(first: 1000, skip:0) {
-            id
-            timestamp
-            pool {
-              id
-              token0 {
-                symbol
-                name
-              }
-              token1 {
-                symbol
-                name
-              }
-            }
-            amount0
-            amount1
-            amountUSD
-          }
-        }
-        """
-        
-        response = requests.post(subgraph_url, json={'query': swaps_query}, headers=headers)
-        if response.status_code == 200:
-            result = response.json()
-            if 'data' in result and 'swaps' in result['data']:
-                swaps_data = result['data']['swaps']
-                print(f"找到 {len(swaps_data)} 条交换数据")
-    
     # 打印获取的数据汇总
     print("\n数据获取汇总:")
     print(f"工厂数据: {len(factory_data)} 条")
     print(f"代币数据: {len(tokens_data)} 条")
     print(f"交易对/流动池数据: {len(pairs_data)} 条")
     print(f"交换数据: {len(swaps_data)} 条")
-    print(f"铸币数据: {len(mints_data)} 条")  # 添加铸币数据统计
-    print(f"销毁数据: {len(burns_data)} 条")  # 添加销毁数据统计
+    print(f"铸币数据: {len(mints_data)} 条")
+    print(f"销毁数据: {len(burns_data)} 条")
     
     return factory_data, tokens_data, pairs_data, swaps_data, burns_data, mints_data
 
